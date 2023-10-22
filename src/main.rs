@@ -1,53 +1,17 @@
-use actix_web::{
-    get,
-    http::{
-        uri::{self, PathAndQuery},
-        Uri,
-    },
-    post, web, App, Error, HttpResponse, HttpServer, Responder,
-};
+use std::str::FromStr;
+
+use actix_web::{get, http::Uri, post, web, Error, HttpResponse};
 use dotenv::dotenv;
 use reqwest;
-use serde::{Deserialize, Serialize};
-use std::env;
-use std::path::Path;
-#[derive(Deserialize)]
-struct Info {
-    username: String,
-}
+pub mod models;
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation, decode_header};
+use models::*;
+use serde_json;
 
-#[derive(Deserialize)]
-struct UserResponse {
-    code: String,
-    scope: String,
-    authuser: String,
-    prompt: String,
-}
-
-#[derive(Deserialize)]
-struct AuthRequestBody {
-    op: String,
-    id: String,
-    uuid: String,
-    device_info: DeviceInfo,
-}
-
-#[derive(Deserialize)]
-struct DeviceInfo {
-    os: String,
-    r#type: String,
-    name: String,
-}
-
-#[derive(Deserialize, Serialize)]
-struct CodeUrl {
-    code: String,
-    url: String,
-}
-// this handler gets called if the query deserializes into `Info` successfully
-// otherwise a 400 Bad Request error response is returned
+/// this handler gets request with code in query params
 #[get("/")]
 async fn index(user_response: web::Query<UserResponse>) -> String {
+    // set params for request for google
     let params = [
         ("client_id", dotenv::var("CLIENT_ID").unwrap()),
         ("client_secret", dotenv::var("CLIENT_SECRET").unwrap()),
@@ -55,46 +19,80 @@ async fn index(user_response: web::Query<UserResponse>) -> String {
         ("grant_type", String::from("authorization_code")),
         ("code", user_response.code.clone()),
     ];
+
     let client = reqwest::Client::new();
+    // exchange code for access token and user_info
     let res = client
         .post("https://oauth2.googleapis.com/token")
         .header("Content-Type", "application/x-www-form-urlencoded")
         .form(&params)
         .send()
         .await;
+    // deserialize response
+    let text_response = res.unwrap().text().await.unwrap();
+    let google_token_response: GoogleTokenResponse =
+        serde_json::from_str(text_response.as_str()).unwrap();
 
-    format!("Code: {}", res.unwrap().text().await.unwrap())
+    let access_token = google_token_response.access_token.as_str();
+
+    //TODO: decode id_token
+    // let jwt_header = decode_header(&google_token_response.id_token);
+    // let token_message = decode::<IdTokenDecoded>(
+    //     &google_token_response.id_token,
+    //     &DecodingKey::from_rsa_der(b64_decode(jwt_header.unwrap().kid.unwrap())),
+    //     &Validation::new(Algorithm::RS256),
+    // );
+    format!(
+        "OK id_token: {}",
+        google_token_response.id_token
+    )
+    // format!("Info: {:?}", id_info)
 }
 
-/// deserialize `Info` from request's body
+/// take device info and login option in params and return code and url for authenfication
 #[post("/auth")]
 async fn auth(auth_req_body: web::Json<AuthRequestBody>) -> Result<HttpResponse, Error> {
-    dotenv().ok();
-    // let my_path = env::home_dir().and_then(|a| Some(a.join("/.env"))).unwrap();
-    let _ = dotenv::from_filename(".env");
+    // get current option
+    let current_option = LoginOption::from_str(auth_req_body.op.as_str());
+    // handle the current option
+    match current_option {
+        Ok(LoginOption::Google) => {
+            let code_url = CodeUrl {
+                code: String::from("123"),
+                url: get_google_auth_url(),
+            };
+            Ok(HttpResponse::Ok().json(code_url))
+        }
+        Ok(LoginOption::Telegram) => Err(actix_web::error::ErrorNotImplemented(
+            "Telegram login option not implemented yet",
+        )),
+        Err(()) => Err(actix_web::error::ErrorBadRequest("Wrong login option")),
+    }
+}
+
+/// create a url for google auth
+fn get_google_auth_url() -> String{
     let authority = "accounts.google.com";
     let path = "/o/oauth2/auth";
     let client_id = dotenv::var("CLIENT_ID").unwrap();
     let redirect_uri = "http://localhost:8080";
     let uri = Uri::builder()
         .scheme("https")
-        .authority("accounts.google.com")
+        .authority(authority)
         .path_and_query(format!(
             "{}?client_id={}&redirect_uri={}&response_type=code&scope=profile%20email",
             path, client_id, redirect_uri
         ))
         .build()
         .unwrap();
-    let code_url = CodeUrl {
-        code: String::from("123"),
-        url: uri.to_string(),
-    };
-    Ok(HttpResponse::Ok().json(code_url))
+    uri.to_string()
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     use actix_web::{App, HttpServer};
+    dotenv().ok();
+    let _ = dotenv::from_filename(".env");
 
     HttpServer::new(|| App::new().service(auth).service(index))
         .bind(("127.0.0.1", 8080))?
