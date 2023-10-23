@@ -1,12 +1,11 @@
 use std::str::FromStr;
-
 use actix_web::{get, http::Uri, post, web, Error, HttpResponse};
 use dotenv::dotenv;
 use reqwest;
 pub mod models;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation, decode_header};
 use models::*;
 use serde_json;
+use google_signin;
 
 /// this handler gets request with code in query params
 #[get("/")]
@@ -30,23 +29,22 @@ async fn index(user_response: web::Query<UserResponse>) -> String {
         .await;
     // deserialize response
     let text_response = res.unwrap().text().await.unwrap();
+    println!("{}",text_response.as_str());
     let google_token_response: GoogleTokenResponse =
         serde_json::from_str(text_response.as_str()).unwrap();
 
-    let access_token = google_token_response.access_token.as_str();
+    // let access_token = google_token_response.access_token.as_str();
 
-    //TODO: decode id_token
-    // let jwt_header = decode_header(&google_token_response.id_token);
-    // let token_message = decode::<IdTokenDecoded>(
-    //     &google_token_response.id_token,
-    //     &DecodingKey::from_rsa_der(b64_decode(jwt_header.unwrap().kid.unwrap())),
-    //     &Validation::new(Algorithm::RS256),
-    // );
+    // verifying (decoding) JWT token 
+    let mut client = google_signin::Client::new();
+    client.audiences.push(dotenv::var("CLIENT_ID").unwrap()); 
+    let id_info = client.verify(&google_token_response.id_token).expect("Expected token to be valid");
+    println!("Success! Signed-in as {}", id_info.sub);
+
     format!(
-        "OK id_token: {}",
-        google_token_response.id_token
+        "OK\nYour login: {}\nYour name: {} {}", id_info.email.unwrap(), id_info.given_name.unwrap(), id_info.family_name.unwrap()
     )
-    // format!("Info: {:?}", id_info)
+
 }
 
 /// take device info and login option in params and return code and url for authenfication
