@@ -2,10 +2,6 @@
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, collections::HashMap};
 
-#[derive(Deserialize)]
-pub struct Info {
-    pub username: String,
-}
 
 #[derive(Deserialize)]
 pub struct UserResponse {
