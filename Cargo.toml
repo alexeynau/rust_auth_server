@@ -17,3 +17,4 @@ jsonwebtoken = "9"
 base64 = "0.21.4"
 axum = "0.6.20"
 tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread"] }
+lazy_static = "1.4.0"
