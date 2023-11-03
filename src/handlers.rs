@@ -1,4 +1,7 @@
 use std::{collections::HashMap, str::FromStr};
+use rand::{thread_rng, Rng};
+use rand::distributions::Alphanumeric;
+
 
 use axum::{
     extract::{Json, Query},
@@ -110,9 +113,11 @@ pub async fn auth(Json(auth_req_body): Json<AuthRequestBody>) -> Result<Json<Cod
     // handle the current option
     match current_option {
         Ok(LoginOption::Google) => {
+            let state = get_google_state();
+            // save state in db
             let code_url = CodeUrl {
-                code: String::from("123"),
-                url: get_google_auth_url(),
+                code: state.clone(),
+                url: get_google_auth_url(state),
             };
             Ok(Json(code_url))
         }
@@ -122,14 +127,23 @@ pub async fn auth(Json(auth_req_body): Json<AuthRequestBody>) -> Result<Json<Cod
 }
 
 /// create a url for google auth
-fn get_google_auth_url() -> String {
+fn get_google_auth_url(state: String) -> String {
     let authority = "accounts.google.com";
     let path = "/o/oauth2/auth";
     let client_id = dotenv::var("CLIENT_ID").unwrap();
     let redirect_uri = "http://localhost:8080";
     let uri = format!(
-        "https://{}{}?client_id={}&redirect_uri={}&response_type=code&scope=profile%20email",
-        authority, path, client_id, redirect_uri
+        "https://{}{}?client_id={}&redirect_uri={}&response_type=code&scope=profile%20email&state={}",
+        authority, path, client_id, redirect_uri,state
     );
     uri
+}
+
+fn get_google_state() -> String {
+    let rand_string: String = thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(30)
+    .map(char::from)
+    .collect();
+    rand_string
 }
